@@ -53,7 +53,7 @@ services:
       - target: 54663
         published: 54663
         protocol: tcp
-        mode: host
+        #mode: host
     environment:
       # https://bitbucket.org/atlassian-docker/docker-bamboo-server/src/master/entrypoint.py and
       # https://bitbucket.org/atlassian-docker/docker-shared-components/src/master/image/entrypoint_helpers.py
