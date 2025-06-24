@@ -1,4 +1,4 @@
-FROM atlassian/bamboo:9.6.11
+FROM atlassian/bamboo:9.6.14
 
 # Linux basics
 RUN apt-get update && apt-get install --yes htop emacs wget tree jq dnsutils traceroute psmisc
