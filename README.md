@@ -14,7 +14,7 @@ e.g. excessive retention of build results, inefficient use of build artifacts
 
 ## Getting Started
 
-**Compatibility:** Verified to work on x86 hardware with latest MacOS or CentOS 7.
+**Compatibility:** Verified to work on x86 hardware with latest MacOS or AlmaLinux 9.
 
 Create a local Bamboo-PostgreSQL deployment using Docker (version 20.10 or newer):
 
@@ -39,7 +39,7 @@ If the server is exposed on the internet, please open _Bamboo administration_ &g
 _Global permissions_ and disable access for "Anonymous users" and
 (any) "Logged in users".
 
-Next, have Python 3.8+ installed on MacOS or Linux and create a virtualenv:
+Next, have Python 3.9+ installed on macOS or Linux and create a virtualenv:
 
     python3 -m venv venv
     . venv/bin/activate

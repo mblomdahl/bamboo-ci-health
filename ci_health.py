@@ -3,10 +3,10 @@
 ci_health.py
 ============
 
-A command-line tool for generating HTML reports from Bamboo MySQL database.
+A command-line tool for generating HTML reports from Bamboo database (MySQL or PostgreSQL).
 
 Reporting process:
-1. Query MySQL: `SELECT BUILD_ID, ..., UPDATED_DATE FROM BUILD WHERE BUILD_TYPE IN ('CHAIN_BRANCH', 'CHAIN');`
+1. Query database: `SELECT BUILD_ID, ..., UPDATED_DATE FROM BUILD WHERE BUILD_TYPE IN ('CHAIN_BRANCH', 'CHAIN');`
 2. Get records like these:
    ```plain
             BUILD_ID: 35095049
@@ -82,10 +82,10 @@ def cli(ctx: any, debug: bool, tmp_dir: str, bamboo_home: str, max_content_width
 @click.option('--limit', default=None, type=int)
 @click.pass_context
 def init_db_builds(ctx, limit: int, max_content_width=120):
-    """Initialize Bamboo builds data from MySQL, stored to `--tmp-dir`."""
+    """Initialize Bamboo builds data from database (MySQL or PostgreSQL), stored to `--tmp-dir`."""
 
-    def _get_db_credentials_from_bamboo_cfg(bamboo_home: str, debug: False) -> [str, str, str]:
-        """Get the username, password and hostname for the Bamboo database from `{--bamboo-home}/bamboo.cfg.xml`."""
+    def _get_db_credentials_from_bamboo_cfg(bamboo_home: str, debug: False) -> [str, str, str, str]:
+        """Get the database type, username, password and hostname for the Bamboo database from `{--bamboo-home}/bamboo.cfg.xml`."""
         bamboo_cfg = f"{bamboo_home}/bamboo.cfg.xml"
         if not os.path.isfile(bamboo_cfg):
             click.echo(
@@ -96,12 +96,22 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
             tree = ET.parse(bamboo_cfg)
             root = tree.getroot()
             app_config = root.find('properties')
-            db_host, db_user, db_passwd = None, None, None
+            db_type, db_host, db_user, db_passwd = None, None, None, None
             for config_property in app_config.findall('./property'):
                 if config_property.get('name') == 'hibernate.connection.url':
-                    db_host = config_property.text.split("jdbc:mysql://")[1].split("/bamboo")[0]
+                    jdbc_url = config_property.text
+                    # Auto-detect database type from JDBC URL
+                    if 'jdbc:mysql://' in jdbc_url:
+                        db_type = 'mysql'
+                        db_host = jdbc_url.split("jdbc:mysql://")[1].split("/bamboo")[0]
+                    elif 'jdbc:postgresql://' in jdbc_url:
+                        db_type = 'postgresql'
+                        db_host = jdbc_url.split("jdbc:postgresql://")[1].split("/bamboo")[0]
+                    else:
+                        click.echo(f"Unsupported database type in JDBC URL: {jdbc_url}")
+                        exit(1)
                     if debug:
-                        click.echo(f"Found database host in {config_property.get('name')}: {db_host}")
+                        click.echo(f"Found database type: {db_type}, host: {db_host}")
                 if config_property.get('name') == 'hibernate.connection.username':
                     db_user = config_property.text
                     if debug:
@@ -110,8 +120,8 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
                     db_passwd = config_property.text
                     if debug:
                         click.echo(f"Found database password in {config_property.get('name')}: {'*' * len(db_passwd)}")
-            if all([db_host, db_user, db_passwd]):
-                return db_host, db_user, db_passwd
+            if all([db_type, db_host, db_user, db_passwd]):
+                return db_type, db_host, db_user, db_passwd
             else:
                 click.echo(f"Database credentials not fully identified in Bamboo config file '{bamboo_cfg}'")
                 exit(1)
@@ -119,8 +129,8 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
             click.echo(f"Error parsing Bamboo config file '{bamboo_cfg}': {e}")
             exit(1)
 
-    def _query_mysql_for_builds(db_host: str, db_user: str, db_passwd: str, limit_: int = None) -> pd.DataFrame:
-        """Query MySQL database for 'CHAIN_BRANCH' and 'CHAIN' type builds."""
+    def _query_database_for_builds(db_type: str, db_host: str, db_user: str, db_passwd: str, limit_: int = None) -> pd.DataFrame:
+        """Query database for 'CHAIN_BRANCH' and 'CHAIN' type builds. Supports both MySQL and PostgreSQL."""
         query = f"""
             SELECT
                 BUILD_ID, BUILD_TYPE, FULL_KEY, TITLE, DESCRIPTION, LINKED_JIRA_ISSUE, CREATED_DATE, UPDATED_DATE
@@ -130,10 +140,23 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
             --     BUILD_TYPE IN ('CHAIN_BRANCH', 'CHAIN', 'BUILD')
             {'LIMIT ' + str(limit_) if limit_ else ''}
         """
-        return pd.read_sql(query, f"mysql+pymysql://{db_user}:{db_passwd}@{db_host}/bamboo")
+        # Build appropriate SQLAlchemy connection string based on database type
+        if db_type == 'mysql':
+            connection_string = f"mysql+pymysql://{db_user}:{db_passwd}@{db_host}/bamboo"
+        elif db_type == 'postgresql':
+            connection_string = f"postgresql+psycopg2://{db_user}:{db_passwd}@{db_host}/bamboo"
+        else:
+            click.echo(f"Unsupported database type: {db_type}")
+            exit(1)
 
-    df = _query_mysql_for_builds(*_get_db_credentials_from_bamboo_cfg(ctx.obj['BAMBOO_HOME'], ctx.obj['DEBUG']),
-                                 limit_=limit)
+        df = pd.read_sql(query, connection_string)
+        # Normalize column names to uppercase for consistency across MySQL and PostgreSQL
+        # PostgreSQL returns lowercase column names, MySQL preserves case
+        df.columns = df.columns.str.upper()
+        return df
+
+    df = _query_database_for_builds(*_get_db_credentials_from_bamboo_cfg(ctx.obj['BAMBOO_HOME'], ctx.obj['DEBUG']),
+                                     limit_=limit)
     if ctx.obj['DEBUG']:
         click.echo(f"Database builds DataFrame:")
         click.echo(df)
