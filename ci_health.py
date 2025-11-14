@@ -29,6 +29,7 @@ a static file directory on the `<bamboo_host>/static/ci-health/` URL.
 import datetime
 import os
 from typing import Union
+from urllib.parse import quote_plus
 
 import click
 import sh
@@ -84,7 +85,7 @@ def cli(ctx: any, debug: bool, tmp_dir: str, bamboo_home: str, max_content_width
 def init_db_builds(ctx, limit: int, max_content_width=120):
     """Initialize Bamboo builds data from database (MySQL or PostgreSQL), stored to `--tmp-dir`."""
 
-    def _get_db_credentials_from_bamboo_cfg(bamboo_home: str, debug: False) -> [str, str, str, str]:
+    def _get_db_credentials_from_bamboo_cfg(bamboo_home: str, debug: bool = False) -> tuple[str, str, str, str]:
         """Get the database type, username, password and hostname for the Bamboo database from `{--bamboo-home}/bamboo.cfg.xml`."""
         bamboo_cfg = f"{bamboo_home}/bamboo.cfg.xml"
         if not os.path.isfile(bamboo_cfg):
@@ -103,10 +104,12 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
                     # Auto-detect database type from JDBC URL
                     if 'jdbc:mysql://' in jdbc_url:
                         db_type = 'mysql'
-                        db_host = jdbc_url.split("jdbc:mysql://")[1].split("/bamboo")[0]
+                        url_without_prefix = jdbc_url.split("jdbc:mysql://", 1)[1]
+                        db_host = url_without_prefix.split("/", 1)[0]
                     elif 'jdbc:postgresql://' in jdbc_url:
                         db_type = 'postgresql'
-                        db_host = jdbc_url.split("jdbc:postgresql://")[1].split("/bamboo")[0]
+                        url_without_prefix = jdbc_url.split("jdbc:postgresql://", 1)[1]
+                        db_host = url_without_prefix.split("/", 1)[0]
                     else:
                         click.echo(f"Unsupported database type in JDBC URL: {jdbc_url}")
                         exit(1)
@@ -123,7 +126,12 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
             if all([db_type, db_host, db_user, db_passwd]):
                 return db_type, db_host, db_user, db_passwd
             else:
-                click.echo(f"Database credentials not fully identified in Bamboo config file '{bamboo_cfg}'")
+                missing = []
+                if not db_type: missing.append('database type')
+                if not db_host: missing.append('host')
+                if not db_user: missing.append('username')
+                if not db_passwd: missing.append('password')
+                click.echo(f"Missing database credentials in '{bamboo_cfg}': {', '.join(missing)}")
                 exit(1)
         except Exception as e:
             click.echo(f"Error parsing Bamboo config file '{bamboo_cfg}': {e}")
@@ -141,10 +149,11 @@ def init_db_builds(ctx, limit: int, max_content_width=120):
             {'LIMIT ' + str(limit_) if limit_ else ''}
         """
         # Build appropriate SQLAlchemy connection string based on database type
+        # URL-encode credentials to handle special characters in passwords
         if db_type == 'mysql':
-            connection_string = f"mysql+pymysql://{db_user}:{db_passwd}@{db_host}/bamboo"
+            connection_string = f"mysql+pymysql://{quote_plus(db_user)}:{quote_plus(db_passwd)}@{db_host}/bamboo"
         elif db_type == 'postgresql':
-            connection_string = f"postgresql+psycopg2://{db_user}:{db_passwd}@{db_host}/bamboo"
+            connection_string = f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_passwd)}@{db_host}/bamboo"
         else:
             click.echo(f"Unsupported database type: {db_type}")
             exit(1)

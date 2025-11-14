@@ -14,7 +14,7 @@ e.g. excessive retention of build results, inefficient use of build artifacts
 
 ## Getting Started
 
-**Compatibility:** Verified to work on x86 hardware with latest MacOS or AlmaLinux 9.
+**Compatibility:** Verified to work on x86 hardware with latest macOS or AlmaLinux 9.
 
 Create a local Bamboo-PostgreSQL deployment using Docker (version 20.10 or newer):
 
